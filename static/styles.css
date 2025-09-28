@@ -1,0 +1,89 @@
+/*simple css*/
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background-color: #333;
+  color: #fff;
+}
+
+.container {
+  display: flex;
+}
+
+.column1 {
+  width: 25%;
+  background-color: #f0f0f0;
+  padding: 20px;
+  color: black;
+}
+
+.column2 {
+  width: 75%;
+  background-color: #d0e6f5;
+  padding: 20px;
+  color: black;
+}
+
+.bottom {
+  width: 100%;
+  background-color: #c8f7c5;
+  padding: 20px;
+  margin-top: 10px;
+  color: black;
+}
+
+table, th, td {
+  border: 1px solid black;
+  border-collapse: collapse;
+}
+
+.scrollable-table-container {
+    max-height: 300px; 
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    padding: 5px;
+}
+
+.scrollable-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.scrollable-table th, .scrollable-table td {
+    border: 1px solid #aaa;
+    padding: 5px;
+    text-align: left;
+}
+
+.matches-container {
+  margin-top: 20px;
+  margin-bottom: 20px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.match-card {
+  padding: 12px;
+  border-radius: 8px;
+  min-width: 120px;
+  color: #000;
+  font-family: Arial, sans-serif;
+  border: 1px solid #000;
+}
+
+.match-card div {
+  margin: 2px 0;
+}
+
+button.include-btn.included {
+  background-color: #4caf50; 
+  color: white;
+}
+button.exclude-btn.excluded {
+  background-color: #f44336; 
+  color: white;
+}
+
+
+
