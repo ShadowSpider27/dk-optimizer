@@ -6,25 +6,34 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 <script defer>
   // function to get standings
-  async function fetchStandings(league) {
+  async function fetchStandings(league,button=null) {
+    if(button) {
+      document.querySelectorAll(".league-button").forEach(btn=> btn.classList.remove("active"));
+      button.classList.add("active");
+    }
+    const heading = document.getElementById("standings-heading");
+    heading.textContent = `${league.toUpperCase()} Standings`;
+
     const response = await fetch(`/standings/${league}`);
     const data = await response.json();
-    //create standings container
+
     const container = document.getElementById("standings-container");
     container.innerHTML = "";
-
+    // error message
     if (data.error) {
-      container.innerHTML = `<p>${data.error}</p>`;
+      dialog.classList.add("error");
+      message.classList.add("message");
+      message.innerText = `Error fetching data: ${err.message}`;
+      dialog.appendChild(message);
       return;
     }
-
+    // create standings tables
     data.forEach((table) => {
       const groupEl = document.createElement("h4");
       groupEl.textContent = table.group || "Standings";
       container.appendChild(groupEl);
 
       const tableEl = document.createElement("table");
-
       const headerRow = document.createElement("tr");
       ["Rank", "Team", "Series"].forEach(h => {
         const th = document.createElement("th");
@@ -43,53 +52,65 @@
         });
         tableEl.appendChild(tr);
       });
-      // table in container
       container.appendChild(tableEl);
     });
   }
 
-  // creates vars
-  let includedPlayers = [];
-  let excludedPlayers = [];
+  // vars
+  let includedPlayers = new Set();
+  let excludedPlayers = new Set();
   let allPlayers = []; 
+
   // function to load csv
   async function loadCSV() {
-    //creates containers
+    //vars
     const container = document.getElementById("dk-salaries-container");
     const matchesContainer = document.getElementById("matches-container");
     const url = document.getElementById("csv-url-input").value;
-
+    const dialog = document.getElementById("dialog-box")
+    const message = document.createElement("div")
+    dialog.innerHTML = "";
+    // error message
     if (!url) {
-      container.innerHTML = "<p>Please enter a URL</p>";
+      message.classList.add("message");
+      message.innerText = `Please Enter a URL`;
+      dialog.appendChild(message);
       return;
     }
 
     try {
       const response = await fetch(`/fetch_csv?url=${encodeURIComponent(url)}`);
       const csvText = await response.text();
-
       const rows = csvText.trim().split("\n").map(r => r.split(","));
+      //error message
       if (rows.length === 0) {
-        container.innerHTML = "<p>No data found in CSV</p>";
+      dialog.classList.add("error");
+      message.classList.add("message");
+      message.innerText = `No Data Found In CSV`;
+      dialog.appendChild(message);
         return;
-      } 
-      // enable optimize button when csv is loaded
+      }
+
       document.getElementById("optimize-btn").disabled = false;
-      // trim csv to output table
-      const desiredColumns = ["Roster Position", "Position", "Name", "Salary", "TeamAbbrev", "AvgPointsPerGame\r"];
-      const headers = rows[0];
+
+      // normalize header names
+      const headers = rows[0].map(h => h.replace("\r",""));
+      const desiredColumns = ["Roster Position", "Position", "Name", "Salary", "TeamAbbrev", "AvgPointsPerGame"];
       const colIndexes = desiredColumns.map(col => headers.indexOf(col));
 
       const table = document.createElement("table");
+      table.classList.add("scrollable-table");
       const headerTr = document.createElement("tr");
+
+      const actionTh = document.createElement("th");
+      actionTh.textContent = "Actions";
+      headerTr.appendChild(actionTh);
+
       desiredColumns.forEach(col => {
         const th = document.createElement("th");
         th.textContent = col;
         headerTr.appendChild(th);
       });
-      const actionTh = document.createElement("th");
-      actionTh.textContent = "Actions";
-      headerTr.appendChild(actionTh);
       table.appendChild(headerTr);
 
       allPlayers = []; 
@@ -98,24 +119,7 @@
         const tr = document.createElement("tr");
         let playerObj = {};
 
-        colIndexes.forEach((idx, i) => {
-          const td = document.createElement("td");
-          const raw = idx >= 0 ? row[idx] : "";
-          const val = raw.replace?.("\r","") ?? raw;
-          td.textContent = val;
-          tr.appendChild(td);
-          playerObj[desiredColumns[i]] = val;
-        });
- 
-        playerObj.Salary = parseInt(playerObj.Salary, 10);
-        playerObj["AvgPointsPerGame"] = parseFloat(playerObj["AvgPointsPerGame\r"]);
-
-        allPlayers.push(playerObj);
-
-        // creates action buttons
         const actionTd = document.createElement("td");
-        const name = playerObj.Name;
-
         const includeBtn = document.createElement("button");
         includeBtn.textContent = "+";
         includeBtn.classList.add("include-btn");
@@ -123,155 +127,346 @@
         const excludeBtn = document.createElement("button");
         excludeBtn.textContent = "x";
         excludeBtn.classList.add("exclude-btn");
-        // action button events
+
+        const name = row[headers.indexOf("Name")].trim();
+        playerObj["Name"] = name;
+        playerObj.included = false;
+        playerObj.excluded = false;
+        // include button event
         includeBtn.onclick = () => {
-          if (includedPlayers.includes(name)) {
-            includedPlayers = includedPlayers.filter(p => p !== name);
+          const key = `${name}|${playerObj.RosterPosition}`;
+          if (includedPlayers.has(key)) {
+            includedPlayers.delete(key);
             includeBtn.classList.remove("included");
+            playerObj.included = false;
           } else {
-            includedPlayers.push(name);
-            // remove from excluded if present
-            excludedPlayers = excludedPlayers.filter(p => p !== name);
+            includedPlayers.add(key);
+            excludedPlayers.delete(name); // still exclude by name
             excludeBtn.classList.remove("excluded");
             includeBtn.classList.add("included");
+            playerObj.included = true;
+            playerObj.excluded = false;
           }
         };
-
+        //exclude button event
         excludeBtn.onclick = () => {
-            if (excludedPlayers.includes(name)) {
-                // un-exclude
-                excludedPlayers = excludedPlayers.filter(p => p !== name);
-                excludeBtn.classList.remove("excluded");
-            } else {
-                // exclude
-                excludedPlayers.push(name);
-                includeBtn.classList.remove("included");
-                includedPlayers = includedPlayers.filter(p => p !== name);
-                excludeBtn.classList.add("excluded");
-            }
-            console.log("Excluded players:", excludedPlayers); // ✅ debug check
-        };
+          const key = `${name}|${playerObj.RosterPosition}`;
+          if (excludedPlayers.has(key)) {
+            // Remove exclusion
+            excludedPlayers.delete(key);
+            excludeBtn.classList.remove("excluded");
+            playerObj.excluded = false;
+          } else {
+            // Exclude this specific role
+            excludedPlayers.add(key);
 
+            // Also remove any inclusion for this role or raw name
+            includedPlayers.delete(key);
+            includedPlayers.delete(name);
+
+            includeBtn.classList.remove("included");
+            excludeBtn.classList.add("excluded");
+            playerObj.excluded = true;
+            playerObj.included = false;
+          }
+        };
 
         actionTd.appendChild(includeBtn);
         actionTd.appendChild(excludeBtn);
         tr.appendChild(actionTd);
 
+        colIndexes.forEach((idx, i) => {
+          const td = document.createElement("td");
+          const raw = idx >= 0 ? row[idx] : "";
+          const val = raw.replace?.("\r", "") ?? raw;
+          td.textContent = val;
+          tr.appendChild(td);
+
+          // assign clean key
+          if (desiredColumns[i] === "Roster Position") {
+            playerObj["RosterPosition"] = val; // clean version without space
+          } else if (desiredColumns[i] === "TeamAbbrev") {
+            playerObj["TeamAbbrev"] = val;
+          } else {
+            playerObj[desiredColumns[i]] = val;
+          }
+        });
+
+        // normalize numeric fields
+        playerObj.Salary = parseInt(playerObj.Salary, 10);
+        playerObj.AvgPointsPerGame = parseFloat(playerObj.AvgPointsPerGame);
+
+        allPlayers.push(playerObj);
         table.appendChild(tr);
       });
 
       container.innerHTML = "";
       container.appendChild(table);
-      // shows matches at the top doesnt work here
+
+      // matches section
       matchesContainer.innerHTML = "";
+      const teamIdx = headers.indexOf("TeamAbbrev");
+      const gameInfoIdx = headers.indexOf("Game Info"); 
+      if (teamIdx >= 0 && gameInfoIdx >= 0) {
+        const seenMatches = new Set();
 
-    } catch (err) {
-      container.innerHTML = `<p>Error loading CSV: ${err.message}</p>`;
-    }
-  }
+        rows.slice(1).forEach(row => {
+          const gameInfo = row[gameInfoIdx];
+          if (gameInfo && !seenMatches.has(gameInfo)) {
+            seenMatches.add(gameInfo);
 
-  // calls backend optimzer funciton and generates lineups
-  async function optimizeLineups() {
-    const bottom = document.querySelector(".bottom");
-    bottom.innerHTML = "<p>Generating lineups…</p>";
+            const [match] = gameInfo.split(" ");
+            const [team1, team2] = match.split("@");
+            console.log(seenMatches)
 
-    try {
-      const res = await fetch("/optimize", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          players: allPlayers,
-          included: includedPlayers,
-          excluded: excludedPlayers
-        })
-      });
-      const data = await res.json();
-      
-      //console.log(excludedPlayers)
-      //console.log(allPlayers)
-      bottom.innerHTML = "";
+            const card = document.createElement("div");
+            card.classList.add("match-card");
 
-      if (!data.lineups || data.lineups.length === 0) {
-        bottom.innerHTML = "<p>No valid lineups found with current constraints.</p>";
-        return;
+            function buildTeamEl(team) {
+              const wrapper = document.createElement("div");
+              wrapper.classList.add("team-select");
+
+              const label = document.createElement("span");
+              label.textContent = team;
+
+              const check = document.createElement("span");
+              check.textContent = "✓";
+              check.classList.add("team-check");
+
+            check.onclick = () => {
+              const playersFromTeam = allPlayers.filter(p => p.TeamAbbrev === team);
+
+              if (check.classList.contains("active")) {
+                playersFromTeam.forEach(p => {
+                  includedPlayers.delete(p.Name); // raw name for team include
+                  includedPlayers.delete(`${p.Name}|${p.RosterPosition}`);
+                  p.included = false;
+                });
+                check.classList.remove("active");
+              } else {
+                playersFromTeam.forEach(p => {
+                  includedPlayers.add(p.Name); // team includes by name
+                  p.included = true;
+                  p.excluded = false;
+                });
+                check.classList.add("active");
+              }
+            };
+
+
+              wrapper.appendChild(label);
+              wrapper.appendChild(check);
+              return wrapper;
+            }
+
+            card.appendChild(buildTeamEl(team1));
+            card.appendChild(buildTeamEl(team2));
+
+            matchesContainer.appendChild(card);
+          }
+        });
       }
-      // creates lineup tables
-      data.lineups.forEach((lineup, idx) => {
-        const title = document.createElement("h3");
-        title.textContent = `Lineup ${idx + 1}`;
-        bottom.appendChild(title);
+      // dialog message
+      dialog.classList.add("dialog");
+      message.classList.add("message");
+      message.innerText = "loaded csv";
+      dialog.appendChild(message)
 
-        const table = document.createElement("table");
-        const header = document.createElement("tr");
-        ["Pos", "Player", "Team", "AvgPts", "Salary"].forEach(h => {
-          const th = document.createElement("th");
-          th.textContent = h;
-          header.appendChild(th);
-        });
-        table.appendChild(header);
-
-        let totalSalary = 0;
-        let totalPoints = 0;
-
-        lineup.forEach(row => {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td>${row.Pos}</td>
-            <td>${row.Player}</td>
-            <td>${row.Team}</td>
-            <td>${Number(row.AvgPts).toFixed(2)}</td>
-            <td>${row.Salary}</td>
-          `;
-          table.appendChild(tr);
-          totalSalary += Number(row.Salary);
-          totalPoints += Number(row.AvgPts);
-        });
-
-        const totals = document.createElement("tr");
-        totals.classList.add("totals-row");
-        totals.innerHTML = `
-          <td colspan="3">Totals</td>
-          <td>${totalPoints.toFixed(2)}</td>
-          <td>${totalSalary}</td>
-        `;
-        table.appendChild(totals);
-
-        bottom.appendChild(table);
-      });
     } catch (err) {
-      bottom.innerHTML = `<p>Error optimizing: ${err.message}</p>`;
+      // error message
+      dialog.classList.add("error");
+      message.classList.add("message");
+      message.innerText = `Error loading CSV: ${err.message}`;
+      dialog.appendChild(message);
     }
   }
 
-  // hook optimize button
-  window.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("optimize-btn").disabled = true;
-    document.getElementById("optimize-btn").onclick = optimizeLineups;
+// call backend optimize and render lineups
+async function optimizeLineups(game, gamemode) {
+  const bottom = document.querySelector(".bottom");
+  const dialog = document.getElementById("dialog-box");
+
+
+  //message
+  dialog.innerHTML = "";
+  const message = document.createElement("div");
+  message.classList.add("message");
+  message.innerText = "Generating lineups"
+  dialog.appendChild(message);
+
+  //reset bottom
+  bottom.innerHTML = `<div class="lineups-container"></div>`;
+  const lineupsContainer = bottom.querySelector(".lineups-container");
+
+  try {
+    const res = await fetch("/optimize", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        game:game,
+        mode:gamemode,
+        players: allPlayers,
+        included: Array.from(includedPlayers),
+        excluded: Array.from(excludedPlayers)
+      })
+    });
+
+    const data = await res.json();
+
+    // message 
+    const includedList = Array.from(includedPlayers);
+    const excludedList = Array.from(excludedPlayers);
+    dialog.classList.add("dialog");
+    dialog.classList.remove("error");
+    message.innerText =
+      `Game Style: ${gamemode} \n` +
+      `Generating lineups...\n` +
+      `Count All Players: ${allPlayers.length}\n` +
+      `Included (${includedList.length}): ${includedList.join(", ") || "none"}\n` +
+      `Excluded (${excludedList.length}): ${excludedList.join(", ") || "none"}`;
+    //error message NEEDS TO HANDLE TYPES OF ERRORS IF WRONG STYLE CHOOSE FOR CSV AUTO CHECK?
+    if (!data.lineups || data.lineups.length === 0) {
+      dialog.classList.add("error");
+      message.innerText = 
+        `No valid lineups found with current constraints \n ` +
+        `Game Style: ${gamemode} \n` +
+        `Count All Players: ${allPlayers.length}\n` +
+        `Included (${includedList.length}): ${includedList.join(", ") || "none"}\n` +
+        `Excluded (${excludedList.length}): ${excludedList.join(", ") || "none"}`;
+      return;
+    }
+    // lineups tables
+    data.lineups.forEach((lineup, idx) => {
+      const lineupDiv = document.createElement("div");
+      lineupDiv.classList.add("lineup");
+
+      const title = document.createElement("h3");
+      title.textContent = `Lineup ${idx + 1}`;
+      lineupDiv.appendChild(title);
+
+      const table = document.createElement("table");
+      const header = document.createElement("tr");
+      ["Pos", "Player", "Team", "AvgPts", "Salary"].forEach(h => {
+        const th = document.createElement("th");
+        th.textContent = h;
+        header.appendChild(th);
+      });
+      table.appendChild(header);
+
+      let totalSalary = 0;
+      let totalPoints = 0;
+
+      lineup.forEach(row => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${row.Pos}</td>
+          <td>${row.Player}</td>
+          <td>${row.Team}</td>
+          <td>${Number(row.AvgPts).toFixed(2)}</td>
+          <td>${row.Salary}</td>
+        `;
+        table.appendChild(tr);
+        totalSalary += Number(row.Salary);
+        totalPoints += Number(row.AvgPts);
+      });
+
+      const totals = document.createElement("tr");
+      totals.classList.add("totals-row");
+      totals.innerHTML = `
+        <td colspan="3">Totals</td>
+        <td>${totalPoints.toFixed(2)}</td>
+        <td>${totalSalary}</td>
+      `;
+      table.appendChild(totals);
+
+      lineupDiv.appendChild(table);
+      lineupsContainer.appendChild(lineupDiv);
+    });
+
+  } catch (err) {
+    //error message
+    message.classList.add("message");
+    message.innerText = "Error Optimizing";
+    dialog.appendChild(message);
+  }
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  const optimizeBtn = document.getElementById("optimize-btn");
+  const clearBtn = document.getElementById("clear-btn");
+  const dialog = document.getElementById("dialog-box");
+
+  optimizeBtn.disabled = true;
+
+  optimizeBtn.addEventListener("click", () => {
+    clearBtn.classList.remove("active");
+    optimizeBtn.classList.add("active");
+    const dropdown = document.getElementById("dropdown");
+    const gamemode = dropdown.value;  
+    optimizeLineups("lol",gamemode);
   });
+
+  clearBtn.addEventListener("click", () => {
+    optimizeBtn.classList.remove("active");
+    clearBtn.classList.add("active");
+
+    includedPlayers.clear();
+    excludedPlayers.clear();
+
+    allPlayers.forEach(player => {
+      player.included = false;
+      player.excluded = false;
+    });
+
+    document.querySelectorAll(".include-btn").forEach(btn => btn.classList.remove("included"));
+    document.querySelectorAll(".exclude-btn").forEach(btn => btn.classList.remove("excluded"));
+    document.querySelectorAll(".team-check").forEach(check => check.classList.remove("active"));
+
+   //message
+    dialog.innerHTML = "";
+    const message = document.createElement("div");
+    dialog.classList.add("dialog");
+    message.classList.add("message");
+    message.innerText = "Cleared All Selections";
+    dialog.appendChild(message);
+
+  });
+});
+
+
 </script>
+
 </head>
 <body>
   <div class="container">
     <div class="column1">
       <h2>Leagues</h2>
-      <button onclick="fetchStandings('lpl')">LPL</button>
-      <button onclick="fetchStandings('lck')">LCK</button>
-      <button onclick="fetchStandings('lta')">LTA</button>
-      <button onclick="fetchStandings('lec')">LEC</button>
-      <h3>Standings</h3>
+      <button class="league-button" onclick="fetchStandings('lpl',this)">LPL</button>
+      <button class="league-button" onclick="fetchStandings('lck',this)">LCK</button>
+      <button class="league-button" onclick="fetchStandings('lta',this)">LTA</button>
+      <button class="league-button" onclick="fetchStandings('lec',this)">LEC</button>
+      <h3 id="standings-heading">Standings</h3>
       <div id="standings-container"></div>
     </div>
-
     <div class="column2">
       <h2>Contests</h2>
-      <input type="text" id="csv-url-input" placeholder="Enter CSV URL" style="width:100%;margin-bottom:10px;">
-      <button onclick="loadCSV()">Load CSV</button>
-      <div id="matches-container" style="margin:20px 0; display:flex; gap:10px; flex-wrap:wrap;"></div>
+      <input type="text" id="csv-url-input" placeholder="Enter CSV URL">
+      <button id="csv-button"onclick="loadCSV()">Load CSV</button>
+      <h2>Game Style:</h2>
+      <select id="dropdown">
+      <option value="classic">classic</option>
+      <option value="showdown">showdown</option>
+      </select>
+      <h2>Matches</h2>
+      <div id="matches-container" class="matches-container"></div>
+      <div class="salaries-and-box">
       <div id="dk-salaries-container" class="scrollable-table-container"></div>
-      <button id="optimize-btn">Optimize</button>
+      <div id="dialog-box" class="dialog-box"></div>
+      </div>
+      <button id="optimize-btn" class="controls" type="button">Optimize</button>
+      <button id="clear-btn" class="controls" type="button">Clear</button>
     </div>
   </div>
-
   <div class="bottom"></div>
 </body>
 </html>

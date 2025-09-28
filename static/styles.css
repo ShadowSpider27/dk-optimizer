@@ -1,60 +1,147 @@
-/*simple css*/
+/* bit more css */ 
 body {
   margin: 0;
   font-family: Arial, sans-serif;
-  background-color: #333;
-  color: #fff;
+  background-color:#0D0E14 ;
 }
 
 .container {
   display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+#standings-container {
+  width: 80%;
+  height:50%;
 }
 
 .column1 {
   width: 25%;
-  background-color: #f0f0f0;
   padding: 20px;
-  color: black;
+  color: #777076;
 }
 
 .column2 {
   width: 75%;
-  background-color: #d0e6f5;
   padding: 20px;
-  color: black;
+  color: #777076;
 }
 
 .bottom {
-  width: 100%;
-  background-color: #c8f7c5;
+  width:fit-content;
+  margin-top: 50px;
   padding: 20px;
-  margin-top: 10px;
-  color: black;
+  color: #777076;
 }
 
-table, th, td {
-  border: 1px solid black;
-  border-collapse: collapse;
+table {
+  border: 1px solid #386775;
+  border-collapse: separate; 
+  border-spacing: 0; 
+  border-radius: 10px; 
+  overflow: hidden;
+  text-align: left;
+  color: #597D7C;
+}
+
+th, td {
+  border: 1px solid #386775;
+  text-align: left;
+  color: #597D7C;
+}
+
+#csv-url-input{
+  width: 75%;
+  margin-bottom: 20px;
+}
+
+.salaries-and-box {
+  display: flex;
+  gap: 10px;         
+  margin-bottom: 20px;
+  align-items: stretch;
 }
 
 .scrollable-table-container {
-    max-height: 300px; 
-    overflow-y: auto;
-    border: 1px solid #ccc;
-    padding: 5px;
+  flex: 2;            
+  max-height: 400px; 
+  overflow-y: auto;
+  max-width: 70%;
+}
+
+.dialog-box.dialog {
+  flex: 1;             
+  background-color: transparent;
+  border: 1px solid #386775;
+  border-radius: 8px;
+  padding: 10px;
+  color: #193D31;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  max-width: 20%;
+  height: fit-content;
+}
+
+.dialog-box.error {
+  flex: 1;             
+  background-color: transparent;
+  border: 1px solid #386775;
+  border-radius: 8px;
+  padding: 10px;
+  color: #7a0045;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  max-width: 20%;
+  height: fit-content;
+}
+
+.message {
+  margin: 5px 0;
+  padding: 8px;
+  border-radius: 5px;
+  font-size: 18px;
 }
 
 .scrollable-table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.scrollable-table th:first-child {
+  border-top-left-radius: 8px;
 }
 
-.scrollable-table th, .scrollable-table td {
-    border: 1px solid #aaa;
+.scrollable-table th:last-child {
+  border-top-right-radius: 8px;
+}
+
+.scrollable-table tr:last-child td:first-child {
+  border-bottom-left-radius: 8px;
+}
+
+.scrollable-table tr:last-child td:last-child {
+  border-bottom-right-radius: 8px;
+}
+
+.scrollable-table td {
+    border: 1px solid #386775;
     padding: 5px;
     text-align: left;
+    color:#597D7C;
+    background-color: #0D0E14; 
 }
 
+.scrollable-table th, .scrollable-table thead{
+    position: sticky;
+    top: 0;
+    background: #0d1117; 
+    background-clip: padding-box;
+    z-index: 2; 
+    box-shadow: 0 2px 2px rgba(0,0,0,0.6);
+}
 .matches-container {
   margin-top: 20px;
   margin-bottom: 20px;
@@ -64,26 +151,91 @@ table, th, td {
 }
 
 .match-card {
-  padding: 12px;
+  padding: 5px;
   border-radius: 8px;
-  min-width: 120px;
-  color: #000;
+  min-width: 80px;
+  color: #597D7C;
   font-family: Arial, sans-serif;
-  border: 1px solid #000;
+  border: 1px solid #386775;
+}
+
+.team-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-check {
+  cursor: pointer;
+  background: transparent;
+  user-select: none;
+  font-weight: bold;
+  color: #777076
+}
+
+.team-check.active {
+  color: #597D7C;
 }
 
 .match-card div {
   margin: 2px 0;
 }
 
+button{
+  color:#404556;
+  background-color:#60515C;
+  border: 1px solid #60515C;
+  cursor: pointer;
+}
+
+.controls{
+  background-color: transparent;
+  border: 1px solid #597D7C;
+  min-width: 60px;
+  height: 40px;
+  font-size: 20px;
+  font-weight: 600;
+}
+.controls.active{
+  color: white;
+  background-color: #777076;
+  border: 1px solid #777076;
+}
+.league-button{
+  min-width: 50px;
+  height: 30px;
+  font-size: 20px;
+  font-weight:600;
+}
+
+.league-button.active{
+  color:white;
+  background-color: #777076;
+  border: 1px solid #777076;
+}
+.include-btn, .exclude-btn{
+  background-color: transparent;
+  color:white;
+  margin: 0px 5px 0px 5px;
+  border-color: transparent;
+}
 button.include-btn.included {
-  background-color: #4caf50; 
+  background-color: #60515C; 
   color: white;
 }
 button.exclude-btn.excluded {
-  background-color: #f44336; 
+  background-color: #60515C; 
   color: white;
 }
 
+h2 {
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
 
+.lineups-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;         
+}
 

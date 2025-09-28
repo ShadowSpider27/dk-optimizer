@@ -27,18 +27,19 @@ def scrape_standings(url):
 
         if not rows:
             continue
-        #get group name 
+        # get group name 
         first_tr = rows[0]
         group_name = " ".join(first_tr.get_text(" ", strip=True).split()[:2])
         #print(group_name)
-        # create headers only the ones we care about
+        # create headers we only care about
         headers = ["Rank", "Team", "Series"]
         # find team data rows
         keys = ["rank", "team", "series"]
         team_rows = []
         for r in rows[2:]:
+            #filter data
             cols = [td.get_text(" ", strip=True) for td in r.find_all("td")]
-            #print(cols)
+            cols = [td.get_text(" ", strip=True).replace("\u2060", "") for td in r.find_all("td")]
             if not cols:
                 continue
             joined = " ".join(cols).lower()
@@ -57,13 +58,13 @@ def scrape_standings(url):
             })
         #print(results)
     return results
-
 #route for getting csv from dk 
 @app.route("/fetch_csv")
 def fetch_csv():
     url = request.args.get("url")
     if not url:
         return jsonify({"error": "No URL provided"}), 400
+
     try:
         r = requests.get(url)
         r.raise_for_status()
@@ -84,57 +85,102 @@ def standings(league):
         return jsonify({"error": "Invalid league"}), 400
     return jsonify(scrape_standings(url))
 
-#optimize/create lineups
+#optimize/create lineups route
 @app.route("/optimize", methods=["POST"])
 def optimize():
     data = request.get_json(force=True)
+    game = data.get("game","")
+    mode = data.get("mode","")
     raw_players = data.get("players", [])
-    included_names = {n.strip() for n in (data.get("included", []) or [])}
-    excluded_names = {n.strip() for n in (data.get("excluded", []) or [])}
-    # get players
+
+    # normalize helper
+    def normalize(s):
+        return (s or "").strip()
+
+    # normalize input sets
+    included_names = {normalize(n) for n in (data.get("included", []) or [])}
+    excluded_names = {normalize(n) for n in (data.get("excluded", []) or [])}
+
     players = []
     for p in raw_players:
         try:
-            name = p.get("Name", "").strip()
-            pos = (p.get("Position") or "").strip().upper()
-            team = (p.get("TeamAbbrev") or "").strip().upper()
+            name = normalize(p.get("Name", ""))
+            roster_pos = normalize(p.get("RosterPosition"))
+            pos = normalize(p.get("Position"))
+            team = normalize(p.get("TeamAbbrev"))
             salary = int(p.get("Salary"))
             avgpts = float(p.get("AvgPointsPerGame") or p.get("AvgPointsPerGame\r") or 0.0)
         except Exception:
             continue
+
         if not name or not team or not pos:
             continue
-        if name in excluded_names:
+
+        combo = f"{name}|{roster_pos}"
+
+        # exclusion always wins
+        if combo in excluded_names or name in excluded_names:
             continue
-        #print(excluded_names)
+
         players.append({
             "Name": name,
+            "RosterPosition": roster_pos,
             "Position": pos,
             "Team": team,
             "Salary": salary,
             "AvgPts": avgpts
         })
-        #print(players)
+
+    if not players:
+        return jsonify({"lineups": []})
+
+    # hard filter on included players
+    if included_names:
+        players = [
+            p for p in players
+            if (p["Name"] in included_names or f"{p['Name']}|{p['RosterPosition']}" in included_names)
+        ]
+
+    # apply exclusion again in case someone is both included + excluded
+    players = [
+        p for p in players
+        if not (
+            p["Name"] in excluded_names or f"{p['Name']}|{p['RosterPosition']}" in excluded_names
+        )
+    ]
 
     if not players:
         return jsonify({"lineups": []})
 
     # classic rules
-    PLAYER_ROLES = ["TOP", "JNG", "MID", "ADC", "SUP"]
-    REQUIRED_ROLES = PLAYER_ROLES + ["TEAM"]  
-    SALARY_CAP = 50000
-    MAX_PLAYERS_PER_TEAM = 4  
+    if game =="lol" and mode=="classic":
+        PLAYER_ROLES = ["TOP", "JNG", "MID", "ADC", "SUP"]
+        REQUIRED_ROLES = PLAYER_ROLES + ["TEAM"]  
+        SALARY_CAP = 50000
+        MAX_PLAYERS_PER_TEAM = 4 
+        slots = ["CPT", "TOP", "JNG", "MID", "ADC", "SUP", "TEAM"]
+    elif game =="lol" and mode =="showdown":
+        PLAYER_ROLES = ["CPT", "FLEX"]
+        REQUIRED_ROLES = PLAYER_ROLES
+        SALARY_CAP = 50000
+        MAX_PLAYERS_PER_TEAM = 2
+        slots = ["CPT", "CPT", "FLEX", "FLEX"]
+    else:
+        return jsonify({"error": "Unsupported game/mode"}), 400
 
-    # roles
+
+
+    # organize players by role
     by_role = {r: [] for r in REQUIRED_ROLES}
     capt_candidates = []  
     for p in players:
-        r = p["Position"]
-        if r in by_role:
-            by_role[r].append(p)
-        if r in PLAYER_ROLES:
+        rpos = p["RosterPosition"]
+        if rpos == "CPT":
             capt_candidates.append(p)
-    # sorting algo
+        elif rpos in by_role:
+            by_role[rpos].append(p)
+
+    # sorting algorithm
     def sort_key(p):
         eff = (p["AvgPts"] / p["Salary"]) if p["Salary"] else 0
         return (p["AvgPts"], eff)
@@ -143,29 +189,25 @@ def optimize():
         by_role[r].sort(key=sort_key, reverse=True)
     capt_candidates.sort(key=sort_key, reverse=True)
 
-    # prio included players
-    def prioritize_included(lst):
-        return sorted(lst, key=lambda x: (x["Name"] not in included_names,
-                                          -x["AvgPts"],
-                                          -(x["AvgPts"] / x["Salary"] if x["Salary"] else 0)))
-    for r in by_role:
-        by_role[r] = prioritize_included(by_role[r])
-    capt_candidates = prioritize_included(capt_candidates)
-
     lineups = []
     seen_signatures = set()
 
-    #backtracking search
-    slots = ["CPT", "TOP", "JNG", "MID", "ADC", "SUP", "TEAM"]
-
-    def backtrack(slot_idx, lineup, used_names, team_player_counts, total_salary, included_remaining):
-        # generated 3 lineups
+    def backtrack(slot_idx, lineup, used_names, team_player_counts, total_salary):
         if len(lineups) >= 3:
             return
-        if slot_idx == len(slots):           
-            if included_remaining:
-                return
-            
+        if slot_idx == len(slots):
+            # showdown-specific validation
+            if game == "lol" and mode == "showdown":
+                teams_in_cpt = {e["Team"] for e in lineup if e["Pos"] == "CPT"}
+                teams_in_flex = {e["Team"] for e in lineup if e["Pos"] == "FLEX"}
+                if teams_in_cpt != teams_in_flex:
+                    return
+            # classic-specific validation
+            if game == "lol" and mode == "classic":
+                # must span at least 2 different games (in practice, different "Team" values here)
+                if len({e["Team"] for e in lineup}) < 2:
+                    return
+
             sig = tuple(sorted((f'{e["Pos"]}:{e["Player"]}' for e in lineup)))
             if sig in seen_signatures:
                 return
@@ -173,15 +215,9 @@ def optimize():
             lineups.append(list(lineup))
             return
 
-        slot = slots[slot_idx]
 
-        
-        if slot == "CPT":
-            candidates = capt_candidates
-        else:
-            candidates = by_role.get(slot, [])
-        
-        candidates = prioritize_included(candidates)
+        slot = slots[slot_idx]
+        candidates = capt_candidates if slot == "CPT" else by_role.get(slot, [])
 
         for c in candidates:
             name = c["Name"]
@@ -191,49 +227,34 @@ def optimize():
 
             if name in used_names:
                 continue
+            
+            # showdown-specific: prevent duplicate CPTs from same team
+            if game == "lol" and mode == "showdown" and slot == "CPT":
+                if any(e["Pos"] == "CPT" and e["Team"] == team for e in lineup):
+                    continue
 
-            # salary + team limit checks
             if slot == "CPT":
-                sal = int(round(base_salary * 1.5))
-                pts = base_pts * 1.5
-                if total_salary + sal > SALARY_CAP:
-                    continue
-                if team_player_counts.get(team, 0) >= MAX_PLAYERS_PER_TEAM:
-                    continue
-                new_team_counts = dict(team_player_counts)
-                new_team_counts[team] = new_team_counts.get(team, 0) + 1
-            elif slot == "TEAM":
                 sal = base_salary
-                pts = base_pts
-                if total_salary + sal > SALARY_CAP:
-                    continue
-                if team_player_counts.get(team, 0) >= MAX_PLAYERS_PER_TEAM:
-                    continue
-                new_team_counts = team_player_counts
-                new_team_counts[team] = new_team_counts.get(team, 0) + 1
+                pts = base_pts * 1.5
             else:
                 sal = base_salary
                 pts = base_pts
-                # player slot -> counts
-                if total_salary + sal > SALARY_CAP:
-                    continue
-                if team_player_counts.get(team, 0) >= MAX_PLAYERS_PER_TEAM:
-                    continue
-                new_team_counts = dict(team_player_counts)
-                new_team_counts[team] = new_team_counts.get(team, 0) + 1
+
+            if total_salary + sal > SALARY_CAP:
+                continue
+            if team_player_counts.get(team, 0) >= MAX_PLAYERS_PER_TEAM:
+                continue
+
+            new_team_counts = dict(team_player_counts)
+            new_team_counts[team] = new_team_counts.get(team, 0) + 1
 
             entry = {
-                "Pos": slot if slot != "CPT" else "CPT",
+                "Pos": slot,
                 "Player": name,
                 "Team": team,
                 "Salary": sal,
                 "AvgPts": pts
             }
-
-            #  included tracking
-            new_included_remaining = set(included_remaining)
-            if name in new_included_remaining:
-                new_included_remaining.remove(name)
 
             lineup.append(entry)
             used_names.add(name)
@@ -243,29 +264,21 @@ def optimize():
                 lineup,
                 used_names,
                 new_team_counts,
-                total_salary + sal,
-                new_included_remaining
+                total_salary + sal
             )
-
-
             lineup.pop()
             used_names.remove(name)
-
             if len(lineups) >= 3:
                 return
-
+            
     backtrack(
         slot_idx=0,
         lineup=[],
         used_names=set(),
         team_player_counts={},
-        total_salary=0,
-        included_remaining=set(n for n in included_names if n not in excluded_names)
+        total_salary=0
     )
-
     return jsonify({"lineups": lineups})
-
-
 
 if __name__ == "__main__":
     app.run(debug=True)
